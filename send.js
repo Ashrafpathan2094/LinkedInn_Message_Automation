@@ -1,21 +1,8 @@
 const { chromium } = require("playwright");
 const fs = require("fs");
+const { buildMessage } = require("./messages");
 
 const MESSAGED_USERS_FILE = "messaged_users.json";
-
-// ─── Message builder ──────────────────────────────────────────────────────────
-
-function buildMessage(name, company) {
-  const firstName = name.split(" ")[0]; // use first name only
-  const companyLine = company
-    ? `If there are any suitable openings at ${company}, I'd really appreciate a referral.`
-    : `If there are any suitable openings at your company, I'd really appreciate a referral.`;
-
-  return `Hi ${firstName},
-Hope you're doing well. I'm currently looking for Full Stack Developer opportunities. ${companyLine}
-I've attached my resume and here's the link: https://drive.google.com/file/d/1tf4mLHNT6mvEQ_ipLuHqx8vpdaqfUGxY/view
-Thank you!`;
-}
 
 // ─── File helpers ────────────────────────────────────────────────────────────
 
@@ -160,12 +147,12 @@ async function clickMessageAndClose(page, buttonIndex, name, company) {
   await sendButton.click();
   await page.waitForTimeout(1000);
 
-const closeButton = page.getByRole("button", {
-  name: /Close your (draft conversation|conversation with)/,
-});
+  const closeButton = page.getByRole("button", {
+    name: /Close your (draft conversation|conversation with)/,
+  });
 
-await closeButton.waitFor({ state: "visible" });
-await closeButton.click();
+  await closeButton.waitFor({ state: "visible" });
+  await closeButton.click();
 
   await page.waitForTimeout(1000);
 }
