@@ -1,7 +1,7 @@
 const { chromium } = require("playwright");
 
-const LINKEDIN_EMAIL = "minazpathan2094@gmail.com";
-const LINKEDIN_PASSWORD = "Hinata11@11";
+const LINKEDIN_EMAIL = "";
+const LINKEDIN_PASSWORD = "";
 
 (async () => {
   const browser = await chromium.launch({

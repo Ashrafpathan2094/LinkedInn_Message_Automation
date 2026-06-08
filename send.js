@@ -43,8 +43,6 @@ async function getMessageButtons(page) {
   return page.locator('a[aria-label^="Send a message to"]');
 }
 
-// ─── DOM helpers ─────────────────────────────────────────────────────────────
-
 async function collectButtonData(page) {
   const buttons = await getMessageButtons(page);
   const count = await buttons.count();
@@ -63,11 +61,8 @@ async function collectButtonData(page) {
       if (!card) return { profileUrl: null, headline: null };
 
       const profileLink = card.querySelector('a[href*="/in/"]');
-      const headlineEl = card.querySelector("span"); // first meaningful span in headline area
-      // grab the deeper headline span (the one with job title text)
       const headlineSpans = card.querySelectorAll("p span");
       let headline = null;
-      // the headline span is usually the longest one
       headlineSpans.forEach((s) => {
         if (s.innerText && s.innerText.length > (headline?.length || 0)) {
           headline = s.innerText.trim();
@@ -80,7 +75,6 @@ async function collectButtonData(page) {
       };
     });
 
-    // ✅ profileUrl from DOM already has /in/... so don't prepend if it's already absolute
     const normalizedUrl = profileUrl
       ? profileUrl.startsWith("http")
         ? profileUrl.split("?")[0].replace(/\/$/, "")
@@ -88,9 +82,7 @@ async function collectButtonData(page) {
           profileUrl.split("?")[0].replace(/\/$/, "")
       : null;
 
-    // Extract company from headline — looks for @CompanyName pattern
     const companyMatch = headline?.match(/@([^|•\n]+)/);
-    // fallback: try "at CompanyName" if no @ found
     const atMatch = headline?.match(/\bat\s+([^|•\n]+)/i);
     const company = companyMatch
       ? companyMatch[1].trim()
@@ -109,64 +101,197 @@ async function collectButtonData(page) {
 
   return results;
 }
+
+// ─── Bubble cleanup ───────────────────────────────────────────────────────────
+
+async function dismissIncomingMessageBubble(page) {
+  // ✅ Close the minimized messaging tray (msg-overlay-list-bubble)
+  try {
+    const tray = page.locator("div.msg-overlay-list-bubble");
+    const trayCount = await tray.count();
+    if (trayCount > 0) {
+      const trayBtn = tray.locator(
+        ".msg-overlay-bubble-header__controls button:last-child",
+      );
+      if ((await trayBtn.count()) > 0) {
+        await trayBtn.evaluate((btn) => btn.click());
+        console.log("  🔕 Dismissed messaging tray");
+        await page.waitForTimeout(300);
+      }
+    }
+  } catch {
+    // silently ignore
+  }
+
+  // ✅ Close all petite reply bubbles (appear when someone messages back)
+  try {
+    const petiteBubbles = page.locator(
+      ".msg-overlay-conversation-bubble--petite",
+    );
+    const petiteCount = await petiteBubbles.count();
+
+    for (let i = 0; i < petiteCount; i++) {
+      try {
+        const bubble = petiteBubbles.nth(i);
+        const closeBtn = bubble.locator(
+          ".msg-overlay-bubble-header__controls button:last-child",
+        );
+        if ((await closeBtn.count()) > 0) {
+          await closeBtn.evaluate((btn) => btn.click());
+          console.log(
+            `  🔕 Closed petite reply bubble ${i + 1}/${petiteCount}`,
+          );
+          await page.waitForTimeout(300);
+        }
+      } catch {
+        // ignore individual bubble errors
+      }
+    }
+  } catch {
+    // silently ignore
+  }
+}
+
+async function closeAllOpenConversations(page) {
+  // ✅ Close any active conversation bubble that is NOT a compose bubble
+  try {
+    const openBubbles = page.locator(
+      ".msg-overlay-conversation-bubble--is-active:not(.msg-overlay-conversation-bubble--is-compose)",
+    );
+    const count = await openBubbles.count();
+
+    for (let i = 0; i < count; i++) {
+      try {
+        const bubble = openBubbles.nth(i);
+        const closeBtn = bubble.locator(
+          ".msg-overlay-bubble-header__controls button:last-child",
+        );
+        if ((await closeBtn.count()) > 0) {
+          await closeBtn.evaluate((btn) => btn.click());
+          console.log(`  🔒 Closed open conversation ${i + 1}/${count}`);
+          await page.waitForTimeout(300);
+        }
+      } catch {
+        // ignore individual errors
+      }
+    }
+  } catch {
+    // silently ignore
+  }
+}
+
 // ─── Scroll helpers ───────────────────────────────────────────────────────────
 
 async function scrollDown(page) {
-  await page.evaluate(() => window.scrollBy(0, 800));
-  await page.waitForTimeout(2000);
+  await page.evaluate(() => {
+    // ✅ main#workspace is the actual scrollable container
+    const main = document.querySelector("main#workspace");
+    if (main) {
+      main.scrollBy({ top: 1000, behavior: "smooth" });
+    }
+    window.scrollBy({ top: 1000, behavior: "smooth" });
+    document.documentElement.scrollBy({ top: 1000, behavior: "smooth" });
+  });
+  await page.waitForTimeout(2500);
+}
+
+async function getScrollTop(page) {
+  return page.evaluate(() => {
+    const main = document.querySelector("main#workspace");
+    return main ? main.scrollTop : window.scrollY;
+  });
 }
 
 async function getScrollHeight(page) {
-  return page.evaluate(() => document.documentElement.scrollHeight);
+  return page.evaluate(() => {
+    const main = document.querySelector("main#workspace");
+    return main
+      ? Math.max(document.documentElement.scrollHeight, main.scrollHeight)
+      : document.documentElement.scrollHeight;
+  });
+}
+
+async function getButtonCount(page) {
+  const buttons = await getMessageButtons(page);
+  return buttons.count();
 }
 
 // ─── Message action ───────────────────────────────────────────────────────────
 
-async function clickMessageAndClose(page, buttonIndex, name, company) {
+async function sendMessage(page, buttonIndex, name, company) {
+  // ✅ Clear the deck before opening a new compose window
+  await dismissIncomingMessageBubble(page);
+  await closeAllOpenConversations(page);
+
   const buttons = await getMessageButtons(page);
   await buttons.nth(buttonIndex).click();
   console.log(`  📨 Clicked message button`);
 
   await page.waitForTimeout(1500);
 
+  // ✅ Dismiss again in case something popped up after click
+  await dismissIncomingMessageBubble(page);
+
   const message = buildMessage(name, company);
   console.log(`  ✉️  Message preview:\n${message}\n`);
 
-  await page
+  const composeBubble = page
+    .locator(".msg-overlay-conversation-bubble--is-compose")
+    .last();
+
+  const contentEditable = composeBubble
     .locator('[contenteditable="true"]')
-    .first()
-    .pressSequentially(message, { delay: 2 }); // delay avoids dropped chars
+    .first();
+
+  await contentEditable.waitFor({ state: "visible" });
+  await contentEditable.click();
+  await contentEditable.pressSequentially(message, { delay: 2 });
 
   await page.waitForTimeout(1000);
 
-  const sendButton = page.getByRole("button", {
-    name: "Send",
-    exact: true,
-  });
-  await sendButton.waitFor({ state: "visible" });
-  await sendButton.click();
-  await page.waitForTimeout(1000);
+  const sendButton = composeBubble
+    .locator("button.msg-form__send-button:not([disabled])")
+    .first();
 
-  const closeButton = page.getByRole("button", {
-    name: /Close your (draft conversation|conversation with)/,
-  });
+  await sendButton.waitFor({ state: "attached" });
+  await sendButton.evaluate((btn) => btn.click());
+  console.log(`  ✅ Message sent`);
 
-  await closeButton.waitFor({ state: "visible" });
-  await closeButton.click();
+  await page.waitForTimeout(3000);
+}
 
-  await page.waitForTimeout(1000);
+async function closeConversation(page) {
+  try {
+    await dismissIncomingMessageBubble(page);
+
+    const closeButton = page
+      .locator(
+        ".msg-overlay-conversation-bubble--is-active .msg-overlay-bubble-header__controls button:last-child",
+      )
+      .last();
+
+    await closeButton.waitFor({ state: "attached", timeout: 5000 });
+    await closeButton.evaluate((btn) => btn.click());
+    console.log(`  🔒 Conversation closed`);
+  } catch (err) {
+    console.warn(`  ⚠️  Could not close conversation: ${err.message}`);
+  }
+
+  await page.waitForTimeout(2000);
 }
 
 // ─── Process a batch of visible buttons ──────────────────────────────────────
 
 async function processVisibleButtons(page, processedUrls) {
+  await dismissIncomingMessageBubble(page);
+  await closeAllOpenConversations(page);
+
   const buttonDataList = await collectButtonData(page);
   console.log(`\n🔍 Found ${buttonDataList.length} message buttons in view`);
 
   let newlyProcessed = 0;
 
-  // ✅ destructure company and headline too
-  for (const { name, profileUrl, headline, company, index } of buttonDataList) {
+  for (const { name, profileUrl, headline, company } of buttonDataList) {
     if (!profileUrl) {
       console.log(`  ⚠️  Skipping "${name}" — could not extract profile URL`);
       continue;
@@ -198,8 +323,9 @@ async function processVisibleButtons(page, processedUrls) {
         continue;
       }
 
-      await clickMessageAndClose(page, targetIndex, name, company);
+      await sendMessage(page, targetIndex, name, company);
 
+      // ✅ Save immediately after send succeeds
       processedUrls.add(profileUrl);
       saveMessagedUser({
         name,
@@ -209,6 +335,10 @@ async function processVisibleButtons(page, processedUrls) {
         messagedAt: new Date().toISOString(),
       });
       newlyProcessed++;
+      console.log(`  💾 Marked as messaged: ${name}`);
+
+      // ✅ Try to close — failure won't affect saved record
+      await closeConversation(page);
     } catch (err) {
       console.error(`  ❌ Error processing ${name}:`, err.message);
     }
@@ -231,20 +361,41 @@ async function processVisibleButtons(page, processedUrls) {
   );
   await page.waitForTimeout(5000);
 
-  // Runtime set to avoid redundant file reads in same session
+  await dismissIncomingMessageBubble(page);
+  await closeAllOpenConversations(page);
+
   const processedUrls = new Set(loadMessagedUsers().map((u) => u.profileUrl));
 
-  let previousScrollHeight = 0;
+  let previousScrollTop = -1;
+  let previousScrollHeight = -1;
+  let previousButtonCount = 0;
   let noNewContentCount = 0;
-  const MAX_NO_NEW_CONTENT = 3; // Stop after 3 scrolls with no new buttons
+  const MAX_NO_NEW_CONTENT = 3;
 
   while (true) {
     await processVisibleButtons(page, processedUrls);
 
-    // Try scrolling for more
-    const currentScrollHeight = await getScrollHeight(page);
+    await dismissIncomingMessageBubble(page);
+    await closeAllOpenConversations(page);
 
-    if (currentScrollHeight === previousScrollHeight) {
+    console.log("\n⬇️  Scrolling for more connections...");
+    await scrollDown(page);
+
+    await dismissIncomingMessageBubble(page);
+
+    const currentScrollTop = await getScrollTop(page);
+    const currentScrollHeight = await getScrollHeight(page);
+    const currentButtonCount = await getButtonCount(page);
+
+    console.log(
+      `  📊 scrollTop: ${currentScrollTop}, scrollHeight: ${currentScrollHeight}, buttons: ${currentButtonCount}`,
+    );
+
+    const scrollTopUnchanged = currentScrollTop === previousScrollTop;
+    const scrollHeightUnchanged = currentScrollHeight === previousScrollHeight;
+    const countUnchanged = currentButtonCount === previousButtonCount;
+
+    if (scrollTopUnchanged && scrollHeightUnchanged && countUnchanged) {
       noNewContentCount++;
       console.log(
         `\n📏 No new content after scroll (${noNewContentCount}/${MAX_NO_NEW_CONTENT})`,
@@ -255,12 +406,12 @@ async function processVisibleButtons(page, processedUrls) {
       }
     } else {
       noNewContentCount = 0;
+      previousScrollTop = currentScrollTop;
       previousScrollHeight = currentScrollHeight;
+      previousButtonCount = currentButtonCount;
+      console.log(`  📈 New content loaded`);
     }
-
-    console.log("\n⬇️  Scrolling for more connections...");
-    await scrollDown(page);
   }
 
-  await browser.close();
+  // await browser.close();
 })();
