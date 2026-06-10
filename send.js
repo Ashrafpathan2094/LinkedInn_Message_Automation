@@ -3,6 +3,7 @@ const fs = require("fs");
 const { buildMessage } = require("./messages");
 
 const MESSAGED_USERS_FILE = "messaged_users.json";
+const DAILY_LIMIT = 499;
 
 // ─── File helpers ────────────────────────────────────────────────────────────
 
@@ -35,6 +36,12 @@ function saveMessagedUser(userRecord) {
 function hasAlreadyMessaged(profileUrl) {
   const users = loadMessagedUsers();
   return users.some((u) => u.profileUrl === profileUrl);
+}
+
+function countMessagedToday() {
+  const users = loadMessagedUsers();
+  const today = new Date().toISOString().slice(0, 10);
+  return users.filter((u) => u.messagedAt?.startsWith(today)).length;
 }
 
 // ─── DOM helpers ─────────────────────────────────────────────────────────────
@@ -105,7 +112,7 @@ async function collectButtonData(page) {
 // ─── Bubble cleanup ───────────────────────────────────────────────────────────
 
 async function dismissIncomingMessageBubble(page) {
-  // ✅ Close the minimized messaging tray (msg-overlay-list-bubble)
+  // Close the minimized messaging tray
   try {
     const tray = page.locator("div.msg-overlay-list-bubble");
     const trayCount = await tray.count();
@@ -123,7 +130,7 @@ async function dismissIncomingMessageBubble(page) {
     // silently ignore
   }
 
-  // ✅ Close all petite reply bubbles (appear when someone messages back)
+  // Close all petite reply bubbles (appear when someone messages back)
   try {
     const petiteBubbles = page.locator(
       ".msg-overlay-conversation-bubble--petite",
@@ -153,7 +160,7 @@ async function dismissIncomingMessageBubble(page) {
 }
 
 async function closeAllOpenConversations(page) {
-  // ✅ Close any active conversation bubble that is NOT a compose bubble
+  // Close any active conversation bubble that is NOT a compose bubble
   try {
     const openBubbles = page.locator(
       ".msg-overlay-conversation-bubble--is-active:not(.msg-overlay-conversation-bubble--is-compose)",
@@ -180,11 +187,28 @@ async function closeAllOpenConversations(page) {
   }
 }
 
+async function emergencyCloseAnyBubble(page) {
+  try {
+    const anyCloseBtn = page
+      .locator(
+        ".msg-overlay-conversation-bubble .msg-overlay-bubble-header__controls button:last-child",
+      )
+      .last();
+    const count = await anyCloseBtn.count();
+    if (count > 0) {
+      await anyCloseBtn.evaluate((btn) => btn.click());
+      console.log("  🆘 Emergency closed a conversation bubble");
+      await page.waitForTimeout(500);
+    }
+  } catch {
+    // silently ignore
+  }
+}
+
 // ─── Scroll helpers ───────────────────────────────────────────────────────────
 
 async function scrollDown(page) {
   await page.evaluate(() => {
-    // ✅ main#workspace is the actual scrollable container
     const main = document.querySelector("main#workspace");
     if (main) {
       main.scrollBy({ top: 1000, behavior: "smooth" });
@@ -218,8 +242,9 @@ async function getButtonCount(page) {
 
 // ─── Message action ───────────────────────────────────────────────────────────
 
+// Returns "sent" (fully confirmed), "sent_no_button" (typed but send btn missing)
+// Throws only if compose window itself never opened (true skip)
 async function sendMessage(page, buttonIndex, name, company) {
-  // ✅ Clear the deck before opening a new compose window
   await dismissIncomingMessageBubble(page);
   await closeAllOpenConversations(page);
 
@@ -228,8 +253,6 @@ async function sendMessage(page, buttonIndex, name, company) {
   console.log(`  📨 Clicked message button`);
 
   await page.waitForTimeout(1500);
-
-  // ✅ Dismiss again in case something popped up after click
   await dismissIncomingMessageBubble(page);
 
   const message = buildMessage(name, company);
@@ -239,25 +262,41 @@ async function sendMessage(page, buttonIndex, name, company) {
     .locator(".msg-overlay-conversation-bubble--is-compose")
     .last();
 
-  const contentEditable = composeBubble
-    .locator('[contenteditable="true"]')
-    .first();
+  // ✅ If compose window not found — true failure, throw to skip user entirely
+  let contentEditable;
+  try {
+    contentEditable = composeBubble.locator('[contenteditable="true"]').first();
+    await contentEditable.waitFor({ state: "visible", timeout: 5000 });
+  } catch {
+    console.warn(
+      "  ⚠️  Could not find message input — closing any open bubble",
+    );
+    await emergencyCloseAnyBubble(page);
+    throw new Error("Message input not found — skipping user");
+  }
 
-  await contentEditable.waitFor({ state: "visible" });
   await contentEditable.click();
   await contentEditable.pressSequentially(message, { delay: 2 });
-
   await page.waitForTimeout(1000);
 
-  const sendButton = composeBubble
-    .locator("button.msg-form__send-button:not([disabled])")
-    .first();
-
-  await sendButton.waitFor({ state: "attached" });
-  await sendButton.evaluate((btn) => btn.click());
-  console.log(`  ✅ Message sent`);
-
-  await page.waitForTimeout(3000);
+  // ✅ If send button not found — message was typed, still mark as sent
+  let sendButton;
+  try {
+    sendButton = composeBubble
+      .locator("button.msg-form__send-button:not([disabled])")
+      .first();
+    await sendButton.waitFor({ state: "attached", timeout: 5000 });
+    await sendButton.evaluate((btn) => btn.click());
+    console.log(`  ✅ Message sent`);
+    await page.waitForTimeout(3000);
+    return "sent";
+  } catch {
+    console.warn(
+      "  ⚠️  Could not find send button — marking as sent and closing",
+    );
+    await emergencyCloseAnyBubble(page);
+    return "sent_no_button";
+  }
 }
 
 async function closeConversation(page) {
@@ -273,8 +312,8 @@ async function closeConversation(page) {
     await closeButton.waitFor({ state: "attached", timeout: 5000 });
     await closeButton.evaluate((btn) => btn.click());
     console.log(`  🔒 Conversation closed`);
-  } catch (err) {
-    console.warn(`  ⚠️  Could not close conversation: ${err.message}`);
+  } catch {
+    await emergencyCloseAnyBubble(page);
   }
 
   await page.waitForTimeout(2000);
@@ -282,16 +321,22 @@ async function closeConversation(page) {
 
 // ─── Process a batch of visible buttons ──────────────────────────────────────
 
-async function processVisibleButtons(page, processedUrls) {
+async function processVisibleButtons(page, processedUrls, dailyCount) {
   await dismissIncomingMessageBubble(page);
   await closeAllOpenConversations(page);
 
   const buttonDataList = await collectButtonData(page);
   console.log(`\n🔍 Found ${buttonDataList.length} message buttons in view`);
 
-  let newlyProcessed = 0;
-
   for (const { name, profileUrl, headline, company } of buttonDataList) {
+    // ✅ Check daily limit before each message
+    if (dailyCount.value >= DAILY_LIMIT) {
+      console.log(
+        `\n🛑 Daily limit of ${DAILY_LIMIT} messages reached. Stopping.`,
+      );
+      return true;
+    }
+
     if (!profileUrl) {
       console.log(`  ⚠️  Skipping "${name}" — could not extract profile URL`);
       continue;
@@ -304,6 +349,7 @@ async function processVisibleButtons(page, processedUrls) {
 
     console.log(`\n➡️  Processing: ${name} (${profileUrl})`);
     console.log(`  🏢 Company: ${company || "unknown"}`);
+    console.log(`  📊 Daily count: ${dailyCount.value}/${DAILY_LIMIT}`);
 
     try {
       const freshButtons = await getMessageButtons(page);
@@ -323,9 +369,9 @@ async function processVisibleButtons(page, processedUrls) {
         continue;
       }
 
-      await sendMessage(page, targetIndex, name, company);
+      const status = await sendMessage(page, targetIndex, name, company);
 
-      // ✅ Save immediately after send succeeds
+      // ✅ Save and increment when sendMessage succeeds
       processedUrls.add(profileUrl);
       saveMessagedUser({
         name,
@@ -333,20 +379,43 @@ async function processVisibleButtons(page, processedUrls) {
         company: company || null,
         headline: headline || null,
         messagedAt: new Date().toISOString(),
+        status,
       });
-      newlyProcessed++;
-      console.log(`  💾 Marked as messaged: ${name}`);
+      dailyCount.value++;
+      console.log(
+        `  💾 Marked as messaged: ${name} | Status: ${status} | Daily: ${dailyCount.value}/${DAILY_LIMIT}`,
+      );
 
-      // ✅ Try to close — failure won't affect saved record
-      await closeConversation(page);
+      if (status === "sent") {
+        await closeConversation(page);
+      }
     } catch (err) {
+      // ✅ sendMessage threw (compose window never opened) —
+      // but still save the user and increment count so we don't retry them
       console.error(`  ❌ Error processing ${name}:`, err.message);
+
+      if (profileUrl) {
+        processedUrls.add(profileUrl);
+        saveMessagedUser({
+          name,
+          profileUrl,
+          company: company || null,
+          headline: headline || null,
+          messagedAt: new Date().toISOString(),
+          status: "error_skipped",
+        });
+        dailyCount.value++;
+        console.log(
+          `  💾 Saved as skipped: ${name} | Status: error_skipped | Daily: ${dailyCount.value}/${DAILY_LIMIT}`,
+        );
+      }
+
+      await emergencyCloseAnyBubble(page);
     }
   }
 
-  return newlyProcessed;
+  return false;
 }
-
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 (async () => {
@@ -366,6 +435,18 @@ async function processVisibleButtons(page, processedUrls) {
 
   const processedUrls = new Set(loadMessagedUsers().map((u) => u.profileUrl));
 
+  // ✅ Calculate messages sent today at startup
+  const dailyCount = { value: countMessagedToday() };
+  console.log(
+    `\n📅 Messages sent today so far: ${dailyCount.value}/${DAILY_LIMIT}`,
+  );
+
+  if (dailyCount.value >= DAILY_LIMIT) {
+    console.log(`🛑 Daily limit already reached. Come back tomorrow!`);
+    await browser.close();
+    return;
+  }
+
   let previousScrollTop = -1;
   let previousScrollHeight = -1;
   let previousButtonCount = 0;
@@ -373,7 +454,12 @@ async function processVisibleButtons(page, processedUrls) {
   const MAX_NO_NEW_CONTENT = 3;
 
   while (true) {
-    await processVisibleButtons(page, processedUrls);
+    const limitReached = await processVisibleButtons(
+      page,
+      processedUrls,
+      dailyCount,
+    );
+    if (limitReached) break;
 
     await dismissIncomingMessageBubble(page);
     await closeAllOpenConversations(page);
@@ -413,5 +499,8 @@ async function processVisibleButtons(page, processedUrls) {
     }
   }
 
-  // await browser.close();
+  console.log(
+    `\n🏁 Session complete. Total sent today: ${dailyCount.value}/${DAILY_LIMIT}`,
+  );
+  await browser.close();
 })();
