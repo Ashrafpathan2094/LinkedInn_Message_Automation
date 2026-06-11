@@ -26,16 +26,27 @@ function loadMessagedUsers() {
   }
 }
 
-function saveMessagedUser(userRecord) {
+// ✅ Build in-memory Set of all messaged profile URLs at startup
+function buildMessagedUrlsSet() {
+  const users = loadMessagedUsers();
+  return new Set(users.map((u) => u.profileUrl).filter(Boolean));
+}
+
+// ✅ Append a single user record to the JSON file without reloading everything
+function appendMessagedUser(userRecord, messagedUrlsSet) {
+  // Update in-memory set immediately
+  messagedUrlsSet.add(userRecord.profileUrl);
+
+  // Append to file — load once, push, save
   const users = loadMessagedUsers();
   users.push(userRecord);
   fs.writeFileSync(MESSAGED_USERS_FILE, JSON.stringify(users, null, 2));
   console.log(`💾 Saved user: ${userRecord.name} (${userRecord.profileUrl})`);
 }
 
-function hasAlreadyMessaged(profileUrl) {
-  const users = loadMessagedUsers();
-  return users.some((u) => u.profileUrl === profileUrl);
+// ✅ O(1) lookup — no file read
+function hasAlreadyMessaged(profileUrl, messagedUrlsSet) {
+  return messagedUrlsSet.has(profileUrl);
 }
 
 function countMessagedToday() {
@@ -112,7 +123,6 @@ async function collectButtonData(page) {
 // ─── Bubble cleanup ───────────────────────────────────────────────────────────
 
 async function dismissIncomingMessageBubble(page) {
-  // Close the minimized messaging tray
   try {
     const tray = page.locator("div.msg-overlay-list-bubble");
     const trayCount = await tray.count();
@@ -130,7 +140,6 @@ async function dismissIncomingMessageBubble(page) {
     // silently ignore
   }
 
-  // Close all petite reply bubbles (appear when someone messages back)
   try {
     const petiteBubbles = page.locator(
       ".msg-overlay-conversation-bubble--petite",
@@ -160,7 +169,6 @@ async function dismissIncomingMessageBubble(page) {
 }
 
 async function closeAllOpenConversations(page) {
-  // Close any active conversation bubble that is NOT a compose bubble
   try {
     const openBubbles = page.locator(
       ".msg-overlay-conversation-bubble--is-active:not(.msg-overlay-conversation-bubble--is-compose)",
@@ -242,8 +250,6 @@ async function getButtonCount(page) {
 
 // ─── Message action ───────────────────────────────────────────────────────────
 
-// Returns "sent" (fully confirmed), "sent_no_button" (typed but send btn missing)
-// Throws only if compose window itself never opened (true skip)
 async function sendMessage(page, buttonIndex, name, company) {
   await dismissIncomingMessageBubble(page);
   await closeAllOpenConversations(page);
@@ -262,7 +268,6 @@ async function sendMessage(page, buttonIndex, name, company) {
     .locator(".msg-overlay-conversation-bubble--is-compose")
     .last();
 
-  // ✅ If compose window not found — true failure, throw to skip user entirely
   let contentEditable;
   try {
     contentEditable = composeBubble.locator('[contenteditable="true"]').first();
@@ -279,7 +284,6 @@ async function sendMessage(page, buttonIndex, name, company) {
   await contentEditable.pressSequentially(message, { delay: 2 });
   await page.waitForTimeout(1000);
 
-  // ✅ If send button not found — message was typed, still mark as sent
   let sendButton;
   try {
     sendButton = composeBubble
@@ -321,7 +325,7 @@ async function closeConversation(page) {
 
 // ─── Process a batch of visible buttons ──────────────────────────────────────
 
-async function processVisibleButtons(page, processedUrls, dailyCount) {
+async function processVisibleButtons(page, messagedUrlsSet, dailyCount) {
   await dismissIncomingMessageBubble(page);
   await closeAllOpenConversations(page);
 
@@ -329,7 +333,6 @@ async function processVisibleButtons(page, processedUrls, dailyCount) {
   console.log(`\n🔍 Found ${buttonDataList.length} message buttons in view`);
 
   for (const { name, profileUrl, headline, company } of buttonDataList) {
-    // ✅ Check daily limit before each message
     if (dailyCount.value >= DAILY_LIMIT) {
       console.log(
         `\n🛑 Daily limit of ${DAILY_LIMIT} messages reached. Stopping.`,
@@ -342,7 +345,8 @@ async function processVisibleButtons(page, processedUrls, dailyCount) {
       continue;
     }
 
-    if (processedUrls.has(profileUrl) || hasAlreadyMessaged(profileUrl)) {
+    // ✅ O(1) in-memory lookup — no file read
+    if (hasAlreadyMessaged(profileUrl, messagedUrlsSet)) {
       console.log(`  ⏭️  Already messaged: ${name} (${profileUrl})`);
       continue;
     }
@@ -371,16 +375,18 @@ async function processVisibleButtons(page, processedUrls, dailyCount) {
 
       const status = await sendMessage(page, targetIndex, name, company);
 
-      // ✅ Save and increment when sendMessage succeeds
-      processedUrls.add(profileUrl);
-      saveMessagedUser({
-        name,
-        profileUrl,
-        company: company || null,
-        headline: headline || null,
-        messagedAt: new Date().toISOString(),
-        status,
-      });
+      // ✅ Update both in-memory Set and file in one shot
+      appendMessagedUser(
+        {
+          name,
+          profileUrl,
+          company: company || null,
+          headline: headline || null,
+          messagedAt: new Date().toISOString(),
+          status,
+        },
+        messagedUrlsSet,
+      );
       dailyCount.value++;
       console.log(
         `  💾 Marked as messaged: ${name} | Status: ${status} | Daily: ${dailyCount.value}/${DAILY_LIMIT}`,
@@ -390,20 +396,21 @@ async function processVisibleButtons(page, processedUrls, dailyCount) {
         await closeConversation(page);
       }
     } catch (err) {
-      // ✅ sendMessage threw (compose window never opened) —
-      // but still save the user and increment count so we don't retry them
       console.error(`  ❌ Error processing ${name}:`, err.message);
 
       if (profileUrl) {
-        processedUrls.add(profileUrl);
-        saveMessagedUser({
-          name,
-          profileUrl,
-          company: company || null,
-          headline: headline || null,
-          messagedAt: new Date().toISOString(),
-          status: "error_skipped",
-        });
+        // ✅ Save error_skipped users the same way — update Set + file together
+        appendMessagedUser(
+          {
+            name,
+            profileUrl,
+            company: company || null,
+            headline: headline || null,
+            messagedAt: new Date().toISOString(),
+            status: "error_skipped",
+          },
+          messagedUrlsSet,
+        );
         dailyCount.value++;
         console.log(
           `  💾 Saved as skipped: ${name} | Status: error_skipped | Daily: ${dailyCount.value}/${DAILY_LIMIT}`,
@@ -416,6 +423,7 @@ async function processVisibleButtons(page, processedUrls, dailyCount) {
 
   return false;
 }
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 (async () => {
@@ -433,9 +441,13 @@ async function processVisibleButtons(page, processedUrls, dailyCount) {
   await dismissIncomingMessageBubble(page);
   await closeAllOpenConversations(page);
 
-  const processedUrls = new Set(loadMessagedUsers().map((u) => u.profileUrl));
+  // ✅ Build in-memory Set once at startup — all future lookups use this
+  const messagedUrlsSet = buildMessagedUrlsSet();
+  console.log(
+    `\n📦 Loaded ${messagedUrlsSet.size} previously messaged users into memory`,
+  );
 
-  // ✅ Calculate messages sent today at startup
+  // ✅ Count today's messages from file once at startup
   const dailyCount = { value: countMessagedToday() };
   console.log(
     `\n📅 Messages sent today so far: ${dailyCount.value}/${DAILY_LIMIT}`,
@@ -454,9 +466,10 @@ async function processVisibleButtons(page, processedUrls, dailyCount) {
   const MAX_NO_NEW_CONTENT = 3;
 
   while (true) {
+    // ✅ Pass messagedUrlsSet instead of separate processedUrls
     const limitReached = await processVisibleButtons(
       page,
-      processedUrls,
+      messagedUrlsSet,
       dailyCount,
     );
     if (limitReached) break;
