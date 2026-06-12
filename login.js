@@ -1,16 +1,21 @@
 const { chromium } = require("playwright");
+const fs = require("fs");
+const path = require("path");
 
 const LINKEDIN_EMAIL = "";
 const LINKEDIN_PASSWORD = "";
 
-(async () => {
-  const browser = await chromium.launch({
-    headless: false,
-    slowMo: 200,
-  });
+const EXT_PATH = `C:\\Users\\ashrafk.SMARTYZ\\AppData\\Local\\BraveSoftware\\Brave-Browser\\User Data\\Default\\Extensions\\omghfjlpggmjjaagoclmmobgdodcjboh\\3.93.3_0`;
+const PROFILE_DIR = path.join(__dirname, "chrome-profile"); // persisted profile folder
 
-  const context = await browser.newContext({
-    viewport: null,
+const extArgs = fs.existsSync(EXT_PATH)
+  ? [`--load-extension=${EXT_PATH}`, `--disable-extensions-except=${EXT_PATH}`]
+  : [];
+(async () => {
+  const context = await chromium.launchPersistentContext(PROFILE_DIR, {
+    headless: false,
+    slowMo: 200, // only in login.js
+    args: extArgs,
   });
 
   const page = await context.newPage();
@@ -114,7 +119,7 @@ const LINKEDIN_PASSWORD = "";
 
             await saveSession();
 
-            await browser.close();
+            await context.close();
             process.exit(0);
           }
 
@@ -153,7 +158,7 @@ const LINKEDIN_PASSWORD = "";
         console.error(err);
       }
 
-      await browser.close();
+      await context.close();
       process.exit(0);
     });
   } catch (err) {
@@ -171,7 +176,7 @@ const LINKEDIN_PASSWORD = "";
         console.error(err);
       }
 
-      await browser.close();
+      await context.close();
       process.exit(0);
     });
   }

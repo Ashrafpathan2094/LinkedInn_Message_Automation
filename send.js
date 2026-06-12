@@ -1,9 +1,14 @@
 const { chromium } = require("playwright");
 const fs = require("fs");
 const { buildMessage } = require("./messages");
-
+const path = require("path");
 const MESSAGED_USERS_FILE = "messaged_users.json";
 const DAILY_LIMIT = 499;
+const EXT_PATH = ``;
+
+const extArgs = fs.existsSync(EXT_PATH)
+  ? [`--load-extension=${EXT_PATH}`, `--disable-extensions-except=${EXT_PATH}`]
+  : [];
 
 // ─── File helpers ────────────────────────────────────────────────────────────
 
@@ -23,6 +28,47 @@ function loadMessagedUsers() {
     console.warn("⚠️  messaged_users.json was corrupted, resetting...");
     fs.writeFileSync(MESSAGED_USERS_FILE, JSON.stringify([], null, 2));
     return [];
+  }
+}
+
+async function removeConnectionCard(page, profileUrl) {
+  try {
+    await page.evaluate((url) => {
+      const profilePath = url
+        .replace("https://www.linkedin.com", "")
+        .split("?")[0]
+        .replace(/\/$/, "");
+
+      // find the anchor pointing to this profile inside the list
+      const anchor = document.querySelector(
+        `[data-testid="lazy-column"] a[href*="${profilePath}"]`,
+      );
+      if (!anchor) return;
+
+      // the direct child of lazy-column is the _54096e47 wrapper div
+      const lazyColumn = document.querySelector('[data-testid="lazy-column"]');
+      if (!lazyColumn) return;
+
+      // walk up from anchor until we hit a direct child of lazyColumn
+      let wrapper = anchor;
+      while (wrapper && wrapper.parentElement !== lazyColumn) {
+        wrapper = wrapper.parentElement;
+      }
+      if (!wrapper) return;
+
+      // also grab the next sibling — it's always the _183fed99 separator/hr div
+      const separator = wrapper.nextElementSibling;
+
+      wrapper.remove();
+
+      if (separator && separator.querySelector('hr[role="presentation"]')) {
+        separator.remove();
+      }
+    }, profileUrl);
+
+    console.log(`  🗑️  Removed card from DOM: ${profileUrl}`);
+  } catch {
+    // silently ignore
   }
 }
 
@@ -348,6 +394,7 @@ async function processVisibleButtons(page, messagedUrlsSet, dailyCount) {
     // ✅ O(1) in-memory lookup — no file read
     if (hasAlreadyMessaged(profileUrl, messagedUrlsSet)) {
       console.log(`  ⏭️  Already messaged: ${name} (${profileUrl})`);
+      await removeConnectionCard(page, profileUrl); // 👈 add this
       continue;
     }
 
@@ -388,6 +435,8 @@ async function processVisibleButtons(page, messagedUrlsSet, dailyCount) {
         messagedUrlsSet,
       );
       dailyCount.value++;
+      await removeConnectionCard(page, profileUrl); // 👈 add this
+
       console.log(
         `  💾 Marked as messaged: ${name} | Status: ${status} | Daily: ${dailyCount.value}/${DAILY_LIMIT}`,
       );
@@ -395,6 +444,7 @@ async function processVisibleButtons(page, messagedUrlsSet, dailyCount) {
       if (status === "sent") {
         await closeConversation(page);
       }
+      await removeConnectionCard(page, profileUrl); // 👈 add this
     } catch (err) {
       console.error(`  ❌ Error processing ${name}:`, err.message);
 
@@ -412,6 +462,7 @@ async function processVisibleButtons(page, messagedUrlsSet, dailyCount) {
           messagedUrlsSet,
         );
         dailyCount.value++;
+        await removeConnectionCard(page, profileUrl); // 👈 add this
         console.log(
           `  💾 Saved as skipped: ${name} | Status: error_skipped | Daily: ${dailyCount.value}/${DAILY_LIMIT}`,
         );
@@ -427,16 +478,27 @@ async function processVisibleButtons(page, messagedUrlsSet, dailyCount) {
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 (async () => {
-  const browser = await chromium.launch({ headless: false });
-  const context = await browser.newContext({
-    storageState: "linkedin-session.json",
+  const EXT_PATH = `C:\\Users\\ashrafk.SMARTYZ\\AppData\\Local\\BraveSoftware\\Brave-Browser\\User Data\\Default\\Extensions\\omghfjlpggmjjaagoclmmobgdodcjboh\\3.93.3_0`;
+  const PROFILE_DIR = path.join(__dirname, "chrome-profile");
+
+  const extArgs = fs.existsSync(EXT_PATH)
+    ? [
+        `--load-extension=${EXT_PATH}`,
+        `--disable-extensions-except=${EXT_PATH}`,
+      ]
+    : [];
+
+  const context = await chromium.launchPersistentContext(PROFILE_DIR, {
+    headless: false,
+    args: extArgs,
   });
+
   const page = await context.newPage();
 
   await page.goto(
     "https://www.linkedin.com/mynetwork/invite-connect/connections/",
   );
-  await page.waitForTimeout(5000);
+  await page.waitForTimeout(120000);
 
   await dismissIncomingMessageBubble(page);
   await closeAllOpenConversations(page);
@@ -455,7 +517,7 @@ async function processVisibleButtons(page, messagedUrlsSet, dailyCount) {
 
   if (dailyCount.value >= DAILY_LIMIT) {
     console.log(`🛑 Daily limit already reached. Come back tomorrow!`);
-    await browser.close();
+    await context.close();
     return;
   }
 
@@ -515,5 +577,5 @@ async function processVisibleButtons(page, messagedUrlsSet, dailyCount) {
   console.log(
     `\n🏁 Session complete. Total sent today: ${dailyCount.value}/${DAILY_LIMIT}`,
   );
-  await browser.close();
+  await context.close();
 })();
