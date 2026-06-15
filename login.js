@@ -2,8 +2,8 @@ const { chromium } = require("playwright");
 const fs = require("fs");
 const path = require("path");
 
-const LINKEDIN_EMAIL = "";
-const LINKEDIN_PASSWORD = "";
+const LINKEDIN_EMAIL = "2094ashrafkhan@gmail.com";
+const LINKEDIN_PASSWORD = "Hinata11@11";
 
 const EXT_PATH = `C:\\Users\\ashrafk.SMARTYZ\\AppData\\Local\\BraveSoftware\\Brave-Browser\\User Data\\Default\\Extensions\\omghfjlpggmjjaagoclmmobgdodcjboh\\3.93.3_0`;
 const PROFILE_DIR = path.join(__dirname, "chrome-profile"); // persisted profile folder
