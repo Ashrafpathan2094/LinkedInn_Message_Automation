@@ -498,7 +498,7 @@ async function processVisibleButtons(page, messagedUrlsSet, dailyCount) {
   await page.goto(
     "https://www.linkedin.com/mynetwork/invite-connect/connections/",
   );
-  // await page.waitForTimeout(120000);
+  await page.waitForTimeout(120000);
 
   await dismissIncomingMessageBubble(page);
   await closeAllOpenConversations(page);
