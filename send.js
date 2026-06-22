@@ -146,13 +146,18 @@ async function collectButtonData(page) {
           profileUrl.split("?")[0].replace(/\/$/, "")
       : null;
 
-    const companyMatch = headline?.match(/@([^|•\n]+)/);
-    const atMatch = headline?.match(/\bat\s+([^|•\n]+)/i);
-    const company = companyMatch
-      ? companyMatch[1].trim()
-      : atMatch
-        ? atMatch[1].trim()
-        : null;
+    let company = null;
+    try {
+      const companyMatch = headline?.match(/@([^|•\n]+)/);
+      const atMatch = headline?.match(/\bat\s+([^|•\n]+)/i);
+      company = companyMatch
+        ? companyMatch[1].trim()
+        : atMatch
+          ? atMatch[1].trim()
+          : null;
+    } catch {
+      company = null;
+    }
 
     results.push({
       name,
@@ -296,6 +301,51 @@ async function getButtonCount(page) {
 
 // ─── Message action ───────────────────────────────────────────────────────────
 
+/**
+ * Wraps buildMessage() so that ANY error while building the templated message
+ * (bad name format, weird headline data, etc.) falls back to a minimal,
+ * hand-built message instead of skipping the user entirely.
+ */
+function safeBuildMessage(name, company) {
+  try {
+    return buildMessage(name, { company: company || undefined });
+  } catch (err) {
+    console.warn(
+      `  ⚠️  buildMessage() failed (${err.message}) — using fallback message`,
+    );
+
+    let firstName = "there";
+    try {
+      firstName = (name || "").split(" ")[0] || "there";
+    } catch {
+      // keep default
+    }
+
+    const lines = [`Hi ${firstName},`];
+    lines.push(
+      "Hope you're doing well! I'm currently exploring Full Stack Developer opportunities.",
+    );
+
+    if (company) {
+      lines.push(
+        `If there are any suitable openings at ${company}, I'd really appreciate a referral.`,
+      );
+    } else {
+      lines.push(
+        "If there are any suitable openings at your company, I'd really appreciate a referral.",
+      );
+    }
+
+    lines.push(
+      "Here's my resume if it helps: https://drive.google.com/file/d/1tf4mLHNT6mvEQ_ipLuHqx8vpdaqfUGxY/view",
+    );
+    lines.push("My portfolio: https://ashraf-khan-portfolio.vercel.app");
+    lines.push("Thanks a lot!");
+
+    return lines.join("\n");
+  }
+}
+
 async function sendMessage(page, buttonIndex, name, company) {
   await dismissIncomingMessageBubble(page);
   await closeAllOpenConversations(page);
@@ -307,7 +357,7 @@ async function sendMessage(page, buttonIndex, name, company) {
   await page.waitForTimeout(1500);
   await dismissIncomingMessageBubble(page);
 
-  const message = buildMessage(name, company);
+  const message = safeBuildMessage(name, company);
   console.log(`  ✉️  Message preview:\n${message}\n`);
 
   const composeBubble = page
@@ -448,6 +498,16 @@ async function processVisibleButtons(page, messagedUrlsSet, dailyCount) {
     } catch (err) {
       console.error(`  ❌ Error processing ${name}:`, err.message);
 
+      const isPageClosed = /Target page, context or browser has been closed/i.test(
+        err.message || "",
+      );
+      if (isPageClosed) {
+        console.error(
+          "  🛑 Browser/page was closed externally — stopping script.",
+        );
+        throw err; // bubble up so the main loop stops instead of looping on a dead page
+      }
+
       if (profileUrl) {
         // ✅ Save error_skipped users the same way — update Set + file together
         appendMessagedUser(
@@ -527,55 +587,63 @@ async function processVisibleButtons(page, messagedUrlsSet, dailyCount) {
   let noNewContentCount = 0;
   const MAX_NO_NEW_CONTENT = 3;
 
-  while (true) {
-    // ✅ Pass messagedUrlsSet instead of separate processedUrls
-    const limitReached = await processVisibleButtons(
-      page,
-      messagedUrlsSet,
-      dailyCount,
-    );
-    if (limitReached) break;
-
-    await dismissIncomingMessageBubble(page);
-    await closeAllOpenConversations(page);
-
-    console.log("\n⬇️  Scrolling for more connections...");
-    await scrollDown(page);
-
-    await dismissIncomingMessageBubble(page);
-
-    const currentScrollTop = await getScrollTop(page);
-    const currentScrollHeight = await getScrollHeight(page);
-    const currentButtonCount = await getButtonCount(page);
-
-    console.log(
-      `  📊 scrollTop: ${currentScrollTop}, scrollHeight: ${currentScrollHeight}, buttons: ${currentButtonCount}`,
-    );
-
-    const scrollTopUnchanged = currentScrollTop === previousScrollTop;
-    const scrollHeightUnchanged = currentScrollHeight === previousScrollHeight;
-    const countUnchanged = currentButtonCount === previousButtonCount;
-
-    if (scrollTopUnchanged && scrollHeightUnchanged && countUnchanged) {
-      noNewContentCount++;
-      console.log(
-        `\n📏 No new content after scroll (${noNewContentCount}/${MAX_NO_NEW_CONTENT})`,
+  try {
+    while (true) {
+      // ✅ Pass messagedUrlsSet instead of separate processedUrls
+      const limitReached = await processVisibleButtons(
+        page,
+        messagedUrlsSet,
+        dailyCount,
       );
-      if (noNewContentCount >= MAX_NO_NEW_CONTENT) {
-        console.log("\n✅ Reached end of connections list. Done!");
-        break;
+      if (limitReached) break;
+
+      await dismissIncomingMessageBubble(page);
+      await closeAllOpenConversations(page);
+
+      console.log("\n⬇️  Scrolling for more connections...");
+      await scrollDown(page);
+
+      await dismissIncomingMessageBubble(page);
+
+      const currentScrollTop = await getScrollTop(page);
+      const currentScrollHeight = await getScrollHeight(page);
+      const currentButtonCount = await getButtonCount(page);
+
+      console.log(
+        `  📊 scrollTop: ${currentScrollTop}, scrollHeight: ${currentScrollHeight}, buttons: ${currentButtonCount}`,
+      );
+
+      const scrollTopUnchanged = currentScrollTop === previousScrollTop;
+      const scrollHeightUnchanged = currentScrollHeight === previousScrollHeight;
+      const countUnchanged = currentButtonCount === previousButtonCount;
+
+      if (scrollTopUnchanged && scrollHeightUnchanged && countUnchanged) {
+        noNewContentCount++;
+        console.log(
+          `\n📏 No new content after scroll (${noNewContentCount}/${MAX_NO_NEW_CONTENT})`,
+        );
+        if (noNewContentCount >= MAX_NO_NEW_CONTENT) {
+          console.log("\n✅ Reached end of connections list. Done!");
+          break;
+        }
+      } else {
+        noNewContentCount = 0;
+        previousScrollTop = currentScrollTop;
+        previousScrollHeight = currentScrollHeight;
+        previousButtonCount = currentButtonCount;
+        console.log(`  📈 New content loaded`);
       }
-    } else {
-      noNewContentCount = 0;
-      previousScrollTop = currentScrollTop;
-      previousScrollHeight = currentScrollHeight;
-      previousButtonCount = currentButtonCount;
-      console.log(`  📈 New content loaded`);
     }
+  } catch (err) {
+    console.error(`\n🛑 Stopped early due to error: ${err.message}`);
   }
 
   console.log(
     `\n🏁 Session complete. Total sent today: ${dailyCount.value}/${DAILY_LIMIT}`,
   );
-  await context.close();
+  try {
+    await context.close();
+  } catch {
+    // already closed — nothing to do
+  }
 })();
