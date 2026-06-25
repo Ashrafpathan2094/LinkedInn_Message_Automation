@@ -5,7 +5,7 @@ const path = require("path");
 const LINKEDIN_EMAIL = "";
 const LINKEDIN_PASSWORD = "";
 
-const EXT_PATH = `C:\\Users\\ashrafk.SMARTYZ\\AppData\\Local\\BraveSoftware\\Brave-Browser\\User Data\\Default\\Extensions\\omghfjlpggmjjaagoclmmobgdodcjboh\\3.93.3_0`;
+const EXT_PATH = `C:\\Users\\ashrafk.SMARTYZ\\AppData\\Local\\BraveSoftware\\Brave-Browser\\User Data\\Default\\Extensions\\omghfjlpggmjjaagoclmmobgdodcjboh\\3.93.4_0`;
 const PROFILE_DIR = path.join(__dirname, "chrome-profile"); // persisted profile folder
 
 const extArgs = fs.existsSync(EXT_PATH)

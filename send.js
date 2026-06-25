@@ -3,8 +3,9 @@ const fs = require("fs");
 const { buildMessage } = require("./messages");
 const path = require("path");
 const MESSAGED_USERS_FILE = "messaged_users.json";
-const DAILY_LIMIT = 499;
-const EXT_PATH = ``;
+const DAILY_LIMIT = 250;
+const EXT_PATH = `C:\\Users\\ashrafk.SMARTYZ\\AppData\\Local\\BraveSoftware\\Brave-Browser\\User Data\\Default\\Extensions\\omghfjlpggmjjaagoclmmobgdodcjboh\\3.93.4_0`;
+
 
 const extArgs = fs.existsSync(EXT_PATH)
   ? [`--load-extension=${EXT_PATH}`, `--disable-extensions-except=${EXT_PATH}`]
@@ -538,7 +539,7 @@ async function processVisibleButtons(page, messagedUrlsSet, dailyCount) {
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 (async () => {
-  const EXT_PATH = `C:\\Users\\ashrafk.SMARTYZ\\AppData\\Local\\BraveSoftware\\Brave-Browser\\User Data\\Default\\Extensions\\omghfjlpggmjjaagoclmmobgdodcjboh\\3.93.3_0`;
+  const EXT_PATH = `C:\\Users\\ashrafk.SMARTYZ\\AppData\\Local\\BraveSoftware\\Brave-Browser\\User Data\\Default\\Extensions\\omghfjlpggmjjaagoclmmobgdodcjboh\\3.93.4_0`;
   const PROFILE_DIR = path.join(__dirname, "chrome-profile");
 
   const extArgs = fs.existsSync(EXT_PATH)
