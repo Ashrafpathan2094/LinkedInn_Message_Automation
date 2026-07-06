@@ -276,7 +276,7 @@ async function scrollDown(page) {
     window.scrollBy({ top: 1000, behavior: "smooth" });
     document.documentElement.scrollBy({ top: 1000, behavior: "smooth" });
   });
-  await page.waitForTimeout(2500);
+  await page.waitForTimeout(3500);
 }
 
 async function getScrollTop(page) {
