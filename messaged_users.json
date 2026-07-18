@@ -26699,5 +26699,37 @@
     "headline": "UI/UX Designer / Programmer",
     "messagedAt": "2026-07-09T07:17:53.171Z",
     "status": "sent"
+  },
+  {
+    "name": "Jyoti Maurya",
+    "profileUrl": "https://www.linkedin.com/in/jyoti-maurya-071647295",
+    "company": null,
+    "headline": "Flutter Developer | Web Developer",
+    "messagedAt": "2026-07-18T08:06:40.894Z",
+    "status": "sent"
+  },
+  {
+    "name": "Micah Delvavis",
+    "profileUrl": "https://www.linkedin.com/in/micah-delvavis-57b740422",
+    "company": "SmartConnect Technologies",
+    "headline": "Software Engineer at SmartConnect Technologies",
+    "messagedAt": "2026-07-18T08:08:19.048Z",
+    "status": "error_skipped"
+  },
+  {
+    "name": "Shrushti Panchal",
+    "profileUrl": "https://www.linkedin.com/in/shrushti-panchal",
+    "company": null,
+    "headline": "MERN DEVELOPER | AI,ML ENTHUSIAST | OPEN TO INTERNSHIPS",
+    "messagedAt": "2026-07-18T08:08:32.198Z",
+    "status": "sent_no_button"
+  },
+  {
+    "name": "Gayatri Chavan",
+    "profileUrl": "https://www.linkedin.com/in/chavangayatri",
+    "company": null,
+    "headline": "Ai/Data Science intern | Data Analyst",
+    "messagedAt": "2026-07-18T08:09:09.723Z",
+    "status": "sent_no_button"
   }
 ]
