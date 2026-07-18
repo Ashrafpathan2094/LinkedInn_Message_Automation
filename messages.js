@@ -6,11 +6,13 @@
 // change/omit any of these.
 
 const DEFAULTS = {
-  resumeLink: "https://drive.google.com/file/d/1tf4mLHNT6mvEQ_ipLuHqx8vpdaqfUGxY/view",
+  resumeLink:
+    "https://drive.google.com/file/d/1tf4mLHNT6mvEQ_ipLuHqx8vpdaqfUGxY/view",
   role: "Full Stack Developer",
   portfolioLink: "https://ashraf-khan-portfolio.vercel.app", // e.g. "https://ashraf-khan-portfolio.vercel.app"
-  experience: "3.5+ years",    // e.g. "3.5+ years"
-  availability: "immediate joiner",  // e.g. "immediate joiner"
+  experience: "3.5+ years", // e.g. "3.5+ years"
+  availability: "15 days", // e.g. "immediate joiner", "1 month", "15 days", "3 months"
+  availabilityType: "notice", // "immediate" | "notice" — controls which phrasing set is used
 };
 
 // ─── Templates ───────────────────────────────────────────────────────────────
@@ -177,12 +179,24 @@ const EXPERIENCE_LINES = [
   `I currently have {experience} of relevant experience.`,
 ];
 
-const AVAILABILITY_LINES = [
-  `I'm an {availability} and can start right away.`,
-  `I'm available as an {availability}.`,
-  `I can join immediately — I'm an {availability}.`,
-  `Just a quick note — I'm an {availability}.`,
-];
+// Two phrasing sets, keyed by availabilityType. "immediate" set ignores the
+// {availability} value entirely (it's just "immediate joiner" wording).
+// "notice" set slots the {availability} value (e.g. "1 month", "15 days") in.
+const AVAILABILITY_LINES = {
+  immediate: [
+    `I'm an immediate joiner and can start right away.`,
+    `I'm available immediately and can start right away.`,
+    `I can join immediately.`,
+    `Just a quick note — I'm an immediate joiner.`,
+  ],
+  notice: [
+    `I'm currently serving my notice period and can join in {availability}.`,
+    `My notice period is {availability}, so I'd be able to join within that time.`,
+    `I can join within {availability}.`,
+    `Just a quick note — my notice period is {availability}.`,
+    `I'll be available to join in about {availability}.`,
+  ],
+};
 
 const PORTFOLIO_LINES = [
   `You can check out my portfolio here: {portfolioLink}`,
@@ -210,15 +224,28 @@ function pickRandom(arr) {
  * resume, portfolio) based on whichever values were actually provided.
  * Any field left out is simply skipped — no blank lines, no placeholder text.
  */
-function buildDetailsBlock({ resumeLink, portfolioLink, experience, availability }) {
+function buildDetailsBlock({
+  resumeLink,
+  portfolioLink,
+  experience,
+  availability,
+  availabilityType,
+}) {
   const lines = [];
 
   if (experience) {
-    lines.push(pickRandom(EXPERIENCE_LINES).replace("{experience}", experience));
+    lines.push(
+      pickRandom(EXPERIENCE_LINES).replace("{experience}", experience),
+    );
   }
 
   if (availability) {
-    lines.push(pickRandom(AVAILABILITY_LINES).replace("{availability}", availability));
+    lines.push(
+      pickRandom(AVAILABILITY_LINES[availabilityType]).replace(
+        "{availability}",
+        availability,
+      ),
+    );
   }
 
   if (resumeLink) {
@@ -226,7 +253,9 @@ function buildDetailsBlock({ resumeLink, portfolioLink, experience, availability
   }
 
   if (portfolioLink) {
-    lines.push(pickRandom(PORTFOLIO_LINES).replace("{portfolioLink}", portfolioLink));
+    lines.push(
+      pickRandom(PORTFOLIO_LINES).replace("{portfolioLink}", portfolioLink),
+    );
   }
 
   return lines.join("\n");
@@ -260,7 +289,8 @@ function cleanupSpacing(message) {
  * @param {string} [options.resumeLink] - resume URL (omit/empty to skip)
  * @param {string} [options.portfolioLink] - portfolio URL (omit/empty to skip)
  * @param {string} [options.experience] - e.g. "3.5+ years" (omit/empty to skip)
- * @param {string} [options.availability] - e.g. "immediate joiner" (omit/empty to skip)
+ * @param {string} [options.availability] - e.g. "immediate joiner", "1 month", "15 days" (omit/empty to skip)
+ * @param {string} [options.availabilityType] - "immediate" | "notice" (defaults to DEFAULTS.availabilityType)
  */
 function buildMessage(name, options = {}) {
   const firstName = name.split(" ")[0];
@@ -272,11 +302,15 @@ function buildMessage(name, options = {}) {
     portfolioLink = DEFAULTS.portfolioLink,
     experience = DEFAULTS.experience,
     availability = DEFAULTS.availability,
+    availabilityType = DEFAULTS.availabilityType,
   } = options;
 
   let companyLine;
   if (company) {
-    companyLine = pickRandom(COMPANY_LINES.withCompany).replace("{company}", company);
+    companyLine = pickRandom(COMPANY_LINES.withCompany).replace(
+      "{company}",
+      company,
+    );
   } else {
     companyLine = pickRandom(COMPANY_LINES.withoutCompany);
   }
@@ -286,6 +320,7 @@ function buildMessage(name, options = {}) {
     portfolioLink,
     experience,
     availability,
+    availabilityType,
   });
 
   const template = pickRandom(MESSAGE_TEMPLATES);
