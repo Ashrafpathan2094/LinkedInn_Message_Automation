@@ -4,12 +4,6 @@ const { buildMessage } = require("./messages");
 const path = require("path");
 const MESSAGED_USERS_FILE = "messaged_users.json";
 const DAILY_LIMIT = 250;
-const EXT_PATH = `C:\\Users\\ashrafk.SMARTYZ\\AppData\\Local\\BraveSoftware\\Brave-Browser\\User Data\\Default\\Extensions\\omghfjlpggmjjaagoclmmobgdodcjboh\\3.93.4_0`;
-
-
-const extArgs = fs.existsSync(EXT_PATH)
-  ? [`--load-extension=${EXT_PATH}`, `--disable-extensions-except=${EXT_PATH}`]
-  : [];
 
 // ─── File helpers ────────────────────────────────────────────────────────────
 
@@ -539,27 +533,35 @@ async function processVisibleButtons(page, messagedUrlsSet, dailyCount) {
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 (async () => {
-  const EXT_PATH = `C:\\Users\\ashrafk.SMARTYZ\\AppData\\Local\\BraveSoftware\\Brave-Browser\\User Data\\Default\\Extensions\\omghfjlpggmjjaagoclmmobgdodcjboh\\3.93.4_0`;
   const PROFILE_DIR = path.join(__dirname, "chrome-profile");
-
-  const extArgs = fs.existsSync(EXT_PATH)
-    ? [
-        `--load-extension=${EXT_PATH}`,
-        `--disable-extensions-except=${EXT_PATH}`,
-      ]
-    : [];
 
   const context = await chromium.launchPersistentContext(PROFILE_DIR, {
     headless: false,
-    args: extArgs,
+    // Launch maximized. viewport:null is required — otherwise Playwright pins a
+    // fixed viewport and the window size is ignored.
+    args: ["--start-maximized"],
+    viewport: null,
   });
 
   const page = await context.newPage();
 
   await page.goto(
     "https://www.linkedin.com/mynetwork/invite-connect/connections/",
+    { waitUntil: "load" },
   );
-  // await page.waitForTimeout(120000);
+
+  // "load" fires before the React list populates, so also wait for the first
+  // connection card to actually render.
+  console.log("");
+  console.log("⏳ Waiting for the connections list to render...");
+  await page
+    .locator('a[aria-label^="Send a message to"]')
+    .first()
+    .waitFor({ state: "visible", timeout: 60000 });
+
+  // Settle before the first click.
+  await page.waitForTimeout(2000);
+  console.log("✅ Page loaded — starting.");
 
   await dismissIncomingMessageBubble(page);
   await closeAllOpenConversations(page);
