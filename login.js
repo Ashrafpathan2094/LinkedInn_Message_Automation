@@ -1,21 +1,17 @@
 const { chromium } = require("playwright");
-const fs = require("fs");
 const path = require("path");
 
 const LINKEDIN_EMAIL = "";
 const LINKEDIN_PASSWORD = "";
 
-const EXT_PATH = `C:\\Users\\ashrafk.SMARTYZ\\AppData\\Local\\BraveSoftware\\Brave-Browser\\User Data\\Default\\Extensions\\omghfjlpggmjjaagoclmmobgdodcjboh\\3.93.4_0`;
 const PROFILE_DIR = path.join(__dirname, "chrome-profile"); // persisted profile folder
 
-const extArgs = fs.existsSync(EXT_PATH)
-  ? [`--load-extension=${EXT_PATH}`, `--disable-extensions-except=${EXT_PATH}`]
-  : [];
 (async () => {
   const context = await chromium.launchPersistentContext(PROFILE_DIR, {
     headless: false,
     slowMo: 200, // only in login.js
-    args: extArgs,
+    args: ["--start-maximized"],
+    viewport: null,
   });
 
   const page = await context.newPage();
