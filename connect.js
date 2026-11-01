@@ -18,6 +18,7 @@ const MAX_SECTION_SCROLLS = 12;
 const MAX_NO_NEW_CONTENT = 3;
 const MAX_FAILED_IN_A_ROW = 3;
 const DRY_RUN = process.argv.includes("--dry-run");
+const HEADLESS = process.argv.includes("--headless");
 
 // LinkedIn's toast: "Your invitation to <name> was not sent because you have
 // reached the weekly limit for connection invitations. Please try again next week"
@@ -730,6 +731,9 @@ async function processVisibleCards(page, listMode, seen, counts, stats) {
   if (DRY_RUN) {
     console.log("🧪 Dry run — no invites are sent and nothing is saved");
   }
+  if (HEADLESS) {
+    console.log("👻 Headless — no browser window will open");
+  }
 
   if (stats.weekly >= WEEKLY_LIMIT) {
     console.log("🛑 Weekly cap already reached. Try again in a few days!");
@@ -739,9 +743,10 @@ async function processVisibleCards(page, listMode, seen, counts, stats) {
   const PROFILE_DIR = path.join(__dirname, "chrome-profile");
 
   const context = await chromium.launchPersistentContext(PROFILE_DIR, {
-    headless: false,
-    // viewport:null keeps the maximized window size (see send.js)
-    args: ["--start-maximized"],
+    headless: HEADLESS,
+    // viewport:null keeps the window size — maximized, or 1920x1080 when
+    // headless (see send.js)
+    args: [HEADLESS ? "--window-size=1920,1080" : "--start-maximized"],
     viewport: null,
   });
 
