@@ -4,6 +4,7 @@ const { buildMessage } = require("./messages");
 const path = require("path");
 const MESSAGED_USERS_FILE = "messaged_users.json";
 const DAILY_LIMIT = 250;
+const HEADLESS = process.argv.includes("--headless");
 
 // ─── File helpers ────────────────────────────────────────────────────────────
 
@@ -530,16 +531,32 @@ async function processVisibleButtons(page, messagedUrlsSet, dailyCount) {
   return false;
 }
 
+// ─── Login check ─────────────────────────────────────────────────────────────
+
+// When the session has expired, LinkedIn redirects to /login, /authwall,
+// /uas/login or a /checkpoint verification page. A headless run can't show you
+// that page, and the wait for the connections list below would just time out.
+// Returns a message saying why the run must stop, or null when logged in.
+function getLoginStopReason(url) {
+  // TODO: decide which redirects stop the run and what each message says
+  return null;
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 (async () => {
   const PROFILE_DIR = path.join(__dirname, "chrome-profile");
 
+  if (HEADLESS) {
+    console.log("👻 Headless — no browser window will open");
+  }
+
   const context = await chromium.launchPersistentContext(PROFILE_DIR, {
-    headless: false,
+    headless: HEADLESS,
     // Launch maximized. viewport:null is required — otherwise Playwright pins a
-    // fixed viewport and the window size is ignored.
-    args: ["--start-maximized"],
+    // fixed viewport and the window size is ignored. Headless has no screen to
+    // maximize into (it falls back to 800x600), so it gets a desktop size.
+    args: [HEADLESS ? "--window-size=1920,1080" : "--start-maximized"],
     viewport: null,
   });
 
@@ -549,6 +566,14 @@ async function processVisibleButtons(page, messagedUrlsSet, dailyCount) {
     "https://www.linkedin.com/mynetwork/invite-connect/connections/",
     { waitUntil: "load" },
   );
+
+  const loginStopReason = getLoginStopReason(page.url());
+  if (loginStopReason) {
+    console.log(`\n🛑 ${loginStopReason}`);
+    process.exitCode = 1;
+    await context.close();
+    return;
+  }
 
   // "load" fires before the React list populates, so also wait for the first
   // connection card to actually render.
